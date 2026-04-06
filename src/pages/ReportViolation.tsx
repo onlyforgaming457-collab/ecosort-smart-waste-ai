@@ -1,26 +1,18 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  MapPin,
-  FileText,
-  ImagePlus,
-  Tag,
-  CheckCircle2,
-  ArrowRight,
-  ArrowLeft,
-  Send,
+  MapPin, FileText, ImagePlus, Tag, CheckCircle2,
+  ArrowRight, ArrowLeft, Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import Layout from "@/components/Layout";
+import { addReport } from "@/lib/activityStore";
+import { useToast } from "@/hooks/use-toast";
 
 const steps = [
   { label: "Location", icon: MapPin },
@@ -41,10 +33,12 @@ const categories = [
 const ReportViolation = () => {
   const [step, setStep] = useState(0);
   const [submitted, setSubmitted] = useState(false);
+  const [refId, setRefId] = useState("");
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
   const [evidencePreview, setEvidencePreview] = useState<string | null>(null);
   const [category, setCategory] = useState("");
+  const { toast } = useToast();
 
   const canNext = () => {
     if (step === 0) return location.trim().length > 2;
@@ -55,7 +49,15 @@ const ReportViolation = () => {
   };
 
   const handleSubmit = () => {
+    const report = addReport({
+      location,
+      description,
+      category,
+      hasEvidence: !!evidencePreview,
+    });
+    setRefId(report.refId);
     setSubmitted(true);
+    toast({ title: "Report submitted!", description: `Reference: ${report.refId}` });
   };
 
   if (submitted) {
@@ -76,7 +78,7 @@ const ReportViolation = () => {
               We'll keep you updated on its progress.
             </p>
             <p className="text-sm text-muted-foreground mb-6">
-              Reference ID: <span className="font-mono font-semibold text-primary">ECO-{Math.random().toString(36).slice(2, 8).toUpperCase()}</span>
+              Reference ID: <span className="font-mono font-semibold text-primary">{refId}</span>
             </p>
             <Button
               onClick={() => {
@@ -125,11 +127,7 @@ const ReportViolation = () => {
                       : "bg-muted text-muted-foreground"
                   }`}
                 >
-                  {i < step ? (
-                    <CheckCircle2 className="h-5 w-5" />
-                  ) : (
-                    <s.icon className="h-4 w-4" />
-                  )}
+                  {i < step ? <CheckCircle2 className="h-5 w-5" /> : <s.icon className="h-4 w-4" />}
                 </div>
                 <span className="hidden sm:inline text-sm font-medium text-muted-foreground">
                   {s.label}
@@ -146,12 +144,7 @@ const ReportViolation = () => {
           </div>
 
           {/* Step Content */}
-          <motion.div
-            key={step}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="glass-card p-8"
-          >
+          <motion.div key={step} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="glass-card p-8">
             <AnimatePresence mode="wait">
               {step === 0 && (
                 <div className="space-y-4">
@@ -165,7 +158,7 @@ const ReportViolation = () => {
                   <div className="bg-muted/50 rounded-2xl h-48 flex items-center justify-center">
                     <div className="text-center text-muted-foreground">
                       <MapPin className="h-8 w-8 mx-auto mb-2 text-primary" />
-                      <p className="text-sm">Map preview will appear here</p>
+                      <p className="text-sm">{location ? `📍 ${location}` : "Map preview will appear here"}</p>
                     </div>
                   </div>
                 </div>
@@ -187,14 +180,10 @@ const ReportViolation = () => {
                   {!evidencePreview ? (
                     <div
                       className="border-2 border-dashed border-primary/30 rounded-2xl p-12 text-center cursor-pointer hover:border-primary/60 transition-colors"
-                      onClick={() =>
-                        document.getElementById("evidence-input")?.click()
-                      }
+                      onClick={() => document.getElementById("evidence-input")?.click()}
                     >
                       <ImagePlus className="h-10 w-10 text-primary mx-auto mb-3" />
-                      <p className="text-sm text-muted-foreground">
-                        Click to upload photos or videos
-                      </p>
+                      <p className="text-sm text-muted-foreground">Click to upload photos or videos</p>
                       <input
                         id="evidence-input"
                         type="file"
@@ -204,8 +193,7 @@ const ReportViolation = () => {
                           const f = e.target.files?.[0];
                           if (f) {
                             const reader = new FileReader();
-                            reader.onload = (ev) =>
-                              setEvidencePreview(ev.target?.result as string);
+                            reader.onload = (ev) => setEvidencePreview(ev.target?.result as string);
                             reader.readAsDataURL(f);
                           }
                         }}
@@ -213,11 +201,7 @@ const ReportViolation = () => {
                     </div>
                   ) : (
                     <div className="relative rounded-2xl overflow-hidden">
-                      <img
-                        src={evidencePreview}
-                        alt="Evidence"
-                        className="w-full max-h-64 object-cover rounded-2xl"
-                      />
+                      <img src={evidencePreview} alt="Evidence" className="w-full max-h-64 object-cover rounded-2xl" />
                       <button
                         onClick={() => setEvidencePreview(null)}
                         className="absolute top-2 right-2 bg-foreground/70 text-background rounded-full p-1.5"
@@ -237,9 +221,7 @@ const ReportViolation = () => {
                     </SelectTrigger>
                     <SelectContent>
                       {categories.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {c}
-                        </SelectItem>
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -248,28 +230,15 @@ const ReportViolation = () => {
             </AnimatePresence>
 
             <div className="flex justify-between mt-8">
-              <Button
-                variant="outline"
-                onClick={() => setStep((s) => s - 1)}
-                disabled={step === 0}
-                className="rounded-xl"
-              >
+              <Button variant="outline" onClick={() => setStep((s) => s - 1)} disabled={step === 0} className="rounded-xl">
                 <ArrowLeft className="mr-2 h-4 w-4" /> Back
               </Button>
               {step < 3 ? (
-                <Button
-                  onClick={() => setStep((s) => s + 1)}
-                  disabled={!canNext()}
-                  className="rounded-xl"
-                >
+                <Button onClick={() => setStep((s) => s + 1)} disabled={!canNext()} className="rounded-xl">
                   Next <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               ) : (
-                <Button
-                  onClick={handleSubmit}
-                  disabled={!canNext()}
-                  className="rounded-xl"
-                >
+                <Button onClick={handleSubmit} disabled={!canNext()} className="rounded-xl">
                   <Send className="mr-2 h-4 w-4" /> Submit Report
                 </Button>
               )}
