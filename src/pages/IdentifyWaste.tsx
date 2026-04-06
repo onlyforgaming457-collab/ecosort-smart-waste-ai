@@ -4,6 +4,9 @@ import { Upload, X, Loader2, Leaf, AlertTriangle, CheckCircle2, Trash2, History 
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import Layout from "@/components/Layout";
+import { supabase } from "@/integrations/supabase/client";
+import { addScan, getScans, type ScanRecord } from "@/lib/activityStore";
+import { useToast } from "@/hooks/use-toast";
 
 interface WasteResult {
   category: string;
@@ -13,50 +16,26 @@ interface WasteResult {
   image: string;
 }
 
-const mockResults: WasteResult[] = [
-  {
-    category: "Recyclable – Plastic (PET)",
-    confidence: 94,
-    disposal: "Rinse and place in your blue recycling bin. Remove caps and labels if possible.",
-    impact: "Recycling this item saves ~1.5 kg of CO₂ emissions.",
-    image: "",
-  },
-  {
-    category: "Organic – Food Waste",
-    confidence: 88,
-    disposal: "Place in compost bin or green waste collection. Avoid mixing with non-organic waste.",
-    impact: "Composting reduces methane emissions from landfills by up to 60%.",
-    image: "",
-  },
-  {
-    category: "Hazardous – E-Waste",
-    confidence: 91,
-    disposal: "Take to a certified e-waste collection center. Do not dispose in regular bins.",
-    impact: "Proper disposal prevents toxic chemicals from contaminating soil and water.",
-    image: "",
-  },
-];
-
-const pastHistory: { category: string; date: string; confidence: number }[] = [
-  { category: "Recyclable – Paper", date: "Feb 28, 2026", confidence: 96 },
-  { category: "Organic – Garden Waste", date: "Feb 25, 2026", confidence: 89 },
-  { category: "Hazardous – Battery", date: "Feb 20, 2026", confidence: 93 },
-];
-
 const IdentifyWaste = () => {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<WasteResult | null>(null);
+  const [history, setHistory] = useState<ScanRecord[]>(() => getScans());
+  const { toast } = useToast();
 
   const handleFile = useCallback((f: File) => {
+    if (f.size > 5 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Please upload an image under 5MB.", variant: "destructive" });
+      return;
+    }
     setFile(f);
     setResult(null);
     const reader = new FileReader();
     reader.onload = (e) => setPreview(e.target?.result as string);
     reader.readAsDataURL(f);
-  }, []);
+  }, [toast]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -67,21 +46,61 @@ const IdentifyWaste = () => {
     [handleFile]
   );
 
-  const analyze = () => {
+  const analyze = async () => {
+    if (!preview) return;
     setAnalyzing(true);
     setProgress(0);
+
+    // Animate progress while waiting for API
     const interval = setInterval(() => {
-      setProgress((p) => {
-        if (p >= 100) {
-          clearInterval(interval);
-          setAnalyzing(false);
-          const r = mockResults[Math.floor(Math.random() * mockResults.length)];
-          setResult({ ...r, image: preview || "" });
-          return 100;
-        }
-        return p + Math.random() * 15 + 5;
+      setProgress((p) => (p >= 90 ? 90 : p + Math.random() * 8 + 2));
+    }, 300);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("analyze-waste", {
+        body: { imageBase64: preview },
       });
-    }, 200);
+
+      clearInterval(interval);
+
+      if (error) {
+        throw new Error(error.message || "Analysis failed");
+      }
+
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+
+      setProgress(100);
+      await new Promise((r) => setTimeout(r, 400));
+
+      const wasteResult: WasteResult = {
+        category: data.category,
+        confidence: data.confidence,
+        disposal: data.disposal,
+        impact: data.impact,
+        image: preview || "",
+      };
+      setResult(wasteResult);
+
+      // Save to localStorage
+      addScan({
+        category: data.category,
+        confidence: data.confidence,
+        disposal: data.disposal,
+        impact: data.impact,
+      });
+      setHistory(getScans());
+    } catch (err: any) {
+      clearInterval(interval);
+      toast({
+        title: "Analysis failed",
+        description: err.message || "Could not analyze the image. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const clear = () => {
@@ -140,11 +159,7 @@ const IdentifyWaste = () => {
             ) : (
               <div className="space-y-6">
                 <div className="relative rounded-2xl overflow-hidden max-h-80 flex justify-center bg-muted/30">
-                  <img
-                    src={preview}
-                    alt="Preview"
-                    className="object-contain max-h-80"
-                  />
+                  <img src={preview} alt="Preview" className="object-contain max-h-80" />
                   <button
                     onClick={clear}
                     className="absolute top-3 right-3 bg-foreground/70 text-background rounded-full p-1.5 hover:bg-foreground transition-colors"
@@ -213,17 +228,13 @@ const IdentifyWaste = () => {
                     <h4 className="font-semibold text-sm text-secondary-foreground mb-2 flex items-center gap-2">
                       <Trash2 className="h-4 w-4" /> Disposal Instructions
                     </h4>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      {result.disposal}
-                    </p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{result.disposal}</p>
                   </div>
                   <div className="bg-secondary/50 rounded-xl p-5">
                     <h4 className="font-semibold text-sm text-secondary-foreground mb-2 flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4" /> Environmental Impact
                     </h4>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      {result.impact}
-                    </p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{result.impact}</p>
                   </div>
                 </div>
 
@@ -248,20 +259,24 @@ const IdentifyWaste = () => {
               Recent Analyses
             </h3>
             <div className="space-y-3">
-              {pastHistory.map((h, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between bg-secondary/30 rounded-xl p-4"
-                >
-                  <div>
-                    <p className="font-medium text-sm">{h.category}</p>
-                    <p className="text-xs text-muted-foreground">{h.date}</p>
+              {history.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  No analyses yet. Upload an image to get started!
+                </p>
+              ) : (
+                history.slice(0, 5).map((h) => (
+                  <div
+                    key={h.id}
+                    className="flex items-center justify-between bg-secondary/30 rounded-xl p-4"
+                  >
+                    <div>
+                      <p className="font-medium text-sm">{h.category}</p>
+                      <p className="text-xs text-muted-foreground">{h.date}</p>
+                    </div>
+                    <span className="text-sm font-semibold text-primary">{h.confidence}%</span>
                   </div>
-                  <span className="text-sm font-semibold text-primary">
-                    {h.confidence}%
-                  </span>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </motion.div>
         </div>
