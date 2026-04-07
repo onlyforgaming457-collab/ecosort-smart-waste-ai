@@ -14,7 +14,114 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      lawyers: {
+        Row: {
+          available: boolean
+          created_at: string
+          experience: string
+          id: string
+          image: string
+          location: string
+          name: string
+          rating: number
+          reviews: number
+          specialty: string
+        }
+        Insert: {
+          available?: boolean
+          created_at?: string
+          experience?: string
+          id?: string
+          image?: string
+          location: string
+          name: string
+          rating?: number
+          reviews?: number
+          specialty: string
+        }
+        Update: {
+          available?: boolean
+          created_at?: string
+          experience?: string
+          id?: string
+          image?: string
+          location?: string
+          name?: string
+          rating?: number
+          reviews?: number
+          specialty?: string
+        }
+        Relationships: []
+      }
+      violation_reports: {
+        Row: {
+          category: string
+          created_at: string
+          description: string | null
+          id: string
+          image_url: string | null
+          location: string
+          reference_id: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          location: string
+          reference_id: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          location?: string
+          reference_id?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      waste_logs: {
+        Row: {
+          category: string
+          confidence: number
+          created_at: string
+          disposal: string | null
+          id: string
+          image_url: string | null
+          impact: string | null
+          user_id: string
+        }
+        Insert: {
+          category: string
+          confidence: number
+          created_at?: string
+          disposal?: string | null
+          id?: string
+          image_url?: string | null
+          impact?: string | null
+          user_id: string
+        }
+        Update: {
+          category?: string
+          confidence?: number
+          created_at?: string
+          disposal?: string | null
+          id?: string
+          image_url?: string | null
+          impact?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
