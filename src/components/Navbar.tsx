@@ -1,8 +1,9 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Leaf, Menu, X } from "lucide-react";
+import { Leaf, Menu, X, LogOut } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
 
 const navLinks = [
   { to: "/", label: "Home" },
@@ -14,7 +15,14 @@ const navLinks = [
 
 const Navbar = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { user, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/");
+  };
 
   return (
     <motion.nav
@@ -48,10 +56,26 @@ const Navbar = () => {
         </div>
 
         <div className="hidden md:flex items-center gap-2">
-          <Button variant="ghost" size="sm">
-            Login
-          </Button>
-          <Button size="sm">Get Started</Button>
+          {user ? (
+            <>
+              <span className="text-sm text-muted-foreground truncate max-w-32">
+                {user.email}
+              </span>
+              <Button variant="ghost" size="sm" onClick={handleSignOut}>
+                <LogOut className="h-4 w-4 mr-1" />
+                Sign Out
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" onClick={() => navigate("/auth")}>
+                Login
+              </Button>
+              <Button size="sm" onClick={() => navigate("/auth")}>
+                Get Started
+              </Button>
+            </>
+          )}
         </div>
 
         {/* Mobile toggle */}
@@ -86,8 +110,16 @@ const Navbar = () => {
               </Link>
             ))}
             <div className="flex gap-2 mt-3">
-              <Button variant="ghost" size="sm" className="flex-1">Login</Button>
-              <Button size="sm" className="flex-1">Get Started</Button>
+              {user ? (
+                <Button variant="ghost" size="sm" className="flex-1" onClick={handleSignOut}>
+                  <LogOut className="h-4 w-4 mr-1" /> Sign Out
+                </Button>
+              ) : (
+                <>
+                  <Button variant="ghost" size="sm" className="flex-1" onClick={() => { setMobileOpen(false); navigate("/auth"); }}>Login</Button>
+                  <Button size="sm" className="flex-1" onClick={() => { setMobileOpen(false); navigate("/auth"); }}>Get Started</Button>
+                </>
+              )}
             </div>
           </div>
         </motion.div>
