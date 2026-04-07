@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   BarChart3, Recycle, FileCheck, Gavel, TrendingUp,
@@ -9,15 +9,16 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
 import Layout from "@/components/Layout";
-import { getStats, getReports, getActivity, getTrendData, getPieData } from "@/lib/activityStore";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { useQuery } from "@tanstack/react-query";
 
 const statusIcon = (status: string) => {
-  if (status === "resolved") return <CheckCircle2 className="h-4 w-4 text-primary" />;
-  if (status === "investigating") return <Loader2 className="h-4 w-4 text-accent animate-spin" />;
+  if (status === "Resolved") return <CheckCircle2 className="h-4 w-4 text-primary" />;
+  if (status === "Investigating") return <Loader2 className="h-4 w-4 text-accent animate-spin" />;
   return <AlertCircle className="h-4 w-4 text-amber-500" />;
 };
 
-// Fallback data when no real data yet
 const fallbackArea = [
   { month: "Sep", recyclable: 12, organic: 8, hazardous: 3 },
   { month: "Oct", recyclable: 18, organic: 14, hazardous: 5 },
@@ -35,66 +36,108 @@ const fallbackPie = [
 ];
 
 const Dashboard = () => {
-  const [stats, setStats] = useState(getStats());
-  const [reports, setReports] = useState(getReports());
-  const [activity, setActivity] = useState(getActivity());
-  const [areaData, setAreaData] = useState(getTrendData());
-  const [pieData, setPieData] = useState(getPieData());
+  const { user } = useAuth();
 
-  // Refresh data on mount / focus
-  useEffect(() => {
-    const refresh = () => {
-      setStats(getStats());
-      setReports(getReports());
-      setActivity(getActivity());
-      setAreaData(getTrendData());
-      setPieData(getPieData());
-    };
-    window.addEventListener("focus", refresh);
-    return () => window.removeEventListener("focus", refresh);
-  }, []);
+  const { data: wasteLogs = [] } = useQuery({
+    queryKey: ["dashboard_waste_logs"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("waste_logs").select("*").order("created_at", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
 
-  const hasRealData = stats.wasteScanned > 0 || stats.reportsFiled > 0;
-  const chartArea = hasRealData && areaData.length > 0 ? areaData : fallbackArea;
+  const { data: reports = [] } = useQuery({
+    queryKey: ["dashboard_reports"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("violation_reports").select("*").order("created_at", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const hasRealData = wasteLogs.length > 0 || reports.length > 0;
+
+  const trendData = useMemo(() => {
+    if (!wasteLogs.length) return [];
+    const monthMap: Record<string, { recyclable: number; organic: number; hazardous: number }> = {};
+    wasteLogs.forEach((s: any) => {
+      const key = new Date(s.created_at).toLocaleDateString("en-US", { month: "short" });
+      if (!monthMap[key]) monthMap[key] = { recyclable: 0, organic: 0, hazardous: 0 };
+      const cat = s.category.toLowerCase();
+      if (cat.includes("recyclable")) monthMap[key].recyclable++;
+      else if (cat.includes("organic")) monthMap[key].organic++;
+      else if (cat.includes("hazardous")) monthMap[key].hazardous++;
+      else monthMap[key].recyclable++;
+    });
+    return Object.entries(monthMap).map(([month, data]) => ({ month, ...data })).slice(-6);
+  }, [wasteLogs]);
+
+  const pieData = useMemo(() => {
+    if (!wasteLogs.length) return fallbackPie;
+    let recyclable = 0, organic = 0, hazardous = 0, general = 0;
+    wasteLogs.forEach((s: any) => {
+      const cat = s.category.toLowerCase();
+      if (cat.includes("recyclable")) recyclable++;
+      else if (cat.includes("organic")) organic++;
+      else if (cat.includes("hazardous")) hazardous++;
+      else general++;
+    });
+    return [
+      { name: "Recyclable", value: recyclable || 1, color: "hsl(152, 55%, 38%)" },
+      { name: "Organic", value: organic || 1, color: "hsl(168, 60%, 42%)" },
+      { name: "Hazardous", value: hazardous || 1, color: "hsl(40, 80%, 50%)" },
+      { name: "General", value: general || 1, color: "hsl(200, 30%, 60%)" },
+    ];
+  }, [wasteLogs]);
+
+  const impactScore = Math.min(100, Math.round(wasteLogs.length * 3.5 + reports.length * 5));
+  const chartArea = hasRealData && trendData.length > 0 ? trendData : fallbackArea;
   const chartPie = hasRealData ? pieData : fallbackPie;
 
   const overviewCards = [
-    { label: "Waste Scanned", value: hasRealData ? String(stats.wasteScanned) : "247", change: hasRealData ? `+${stats.wasteScanned}` : "+12%", icon: Recycle },
-    { label: "Reports Filed", value: hasRealData ? String(stats.reportsFiled) : "18", change: hasRealData ? `+${stats.reportsFiled}` : "+3", icon: FileCheck },
-    { label: "Legal Consults", value: hasRealData ? String(activity.filter(a => a.type === "legal").length) : "5", change: "+2", icon: Gavel },
-    { label: "Impact Score", value: hasRealData ? String(stats.impactScore) : "92", change: "+8%", icon: TrendingUp },
+    { label: "Waste Scanned", value: hasRealData ? String(wasteLogs.length) : "247", change: hasRealData ? `+${wasteLogs.length}` : "+12%", icon: Recycle },
+    { label: "Reports Filed", value: hasRealData ? String(reports.length) : "18", change: hasRealData ? `+${reports.length}` : "+3", icon: FileCheck },
+    { label: "Legal Consults", value: "5", change: "+2", icon: Gavel },
+    { label: "Impact Score", value: hasRealData ? String(impactScore) : "92", change: "+8%", icon: TrendingUp },
   ];
 
   const displayComplaints = reports.length > 0
-    ? reports.slice(0, 3).map((r) => ({
-        id: r.refId,
+    ? reports.slice(0, 3).map((r: any) => ({
+        id: r.reference_id,
         title: `${r.category} at ${r.location}`,
         status: r.status,
-        date: r.date,
+        date: new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
       }))
     : [
-        { id: "ECO-A3F2", title: "Illegal dumping on River Road", status: "resolved", date: "Feb 27" },
-        { id: "ECO-B7K9", title: "Industrial waste near school", status: "investigating", date: "Feb 25" },
-        { id: "ECO-C1D4", title: "Air pollution from factory", status: "pending", date: "Feb 22" },
+        { id: "ECO-A3F2", title: "Illegal dumping on River Road", status: "Resolved", date: "Feb 27" },
+        { id: "ECO-B7K9", title: "Industrial waste near school", status: "Investigating", date: "Feb 25" },
+        { id: "ECO-C1D4", title: "Air pollution from factory", status: "Submitted", date: "Feb 22" },
       ];
 
-  const displayTimeline = activity.length > 0
-    ? activity.slice(0, 4)
-    : [
-        { action: "Waste analysis completed", type: "scan", time: "2 hours ago", timestamp: 0 },
-        { action: "Violation report ECO-A3F2 resolved", type: "resolved", time: "1 day ago", timestamp: 0 },
-        { action: "Consultation booked with Dr. Sharma", type: "legal", time: "2 days ago", timestamp: 0 },
-        { action: "New report filed: ECO-B7K9", type: "report", time: "4 days ago", timestamp: 0 },
-      ];
+  const displayTimeline = useMemo(() => {
+    const items: { action: string; time: string }[] = [];
+    wasteLogs.slice(0, 3).forEach((w: any) => {
+      items.push({ action: `Waste classified as ${w.category}`, time: new Date(w.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) });
+    });
+    reports.slice(0, 3).forEach((r: any) => {
+      items.push({ action: `Report filed: ${r.reference_id}`, time: new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) });
+    });
+    items.sort((a, b) => 0); // keep insertion order
+    return items.length > 0 ? items.slice(0, 4) : [
+      { action: "Waste analysis completed", time: "Feb 28" },
+      { action: "Violation report ECO-A3F2 resolved", time: "Feb 27" },
+      { action: "Consultation booked with Dr. Sharma", time: "Feb 26" },
+      { action: "New report filed: ECO-B7K9", time: "Feb 25" },
+    ];
+  }, [wasteLogs, reports]);
 
   return (
     <Layout>
       <section className="hero-bg min-h-[calc(100vh-4rem)] py-16">
         <div className="container mx-auto px-4 max-w-6xl">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-10">
-            <h1 className="text-3xl md:text-5xl font-extrabold mb-2">
-              <span className="eco-gradient-text">Dashboard</span>
-            </h1>
+            <h1 className="text-3xl md:text-5xl font-extrabold mb-2"><span className="eco-gradient-text">Dashboard</span></h1>
             <p className="text-muted-foreground">Track your environmental impact and activity.</p>
           </motion.div>
 
@@ -115,10 +158,7 @@ const Dashboard = () => {
           {/* Charts */}
           <div className="grid lg:grid-cols-3 gap-6 mb-8">
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="glass-card p-6 lg:col-span-2">
-              <h3 className="font-bold mb-4 flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 text-primary" />
-                Classification Trends
-              </h3>
+              <h3 className="font-bold mb-4 flex items-center gap-2"><BarChart3 className="h-5 w-5 text-primary" />Classification Trends</h3>
               <ResponsiveContainer width="100%" height={260}>
                 <AreaChart data={chartArea}>
                   <defs>
@@ -147,9 +187,7 @@ const Dashboard = () => {
               <ResponsiveContainer width="100%" height={200}>
                 <PieChart>
                   <Pie data={chartPie} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" strokeWidth={2} stroke="hsl(140, 20%, 97%)">
-                    {chartPie.map((entry) => (
-                      <Cell key={entry.name} fill={entry.color} />
-                    ))}
+                    {chartPie.map((entry) => (<Cell key={entry.name} fill={entry.color} />))}
                   </Pie>
                   <Tooltip />
                 </PieChart>
@@ -157,8 +195,7 @@ const Dashboard = () => {
               <div className="flex flex-wrap gap-3 mt-2 justify-center">
                 {chartPie.map((d) => (
                   <div key={d.name} className="flex items-center gap-1.5 text-xs">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ background: d.color }} />
-                    {d.name}
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ background: d.color }} />{d.name}
                   </div>
                 ))}
               </div>
@@ -180,22 +217,17 @@ const Dashboard = () => {
                       </div>
                     </div>
                     <span className={`text-xs font-semibold capitalize px-2.5 py-1 rounded-full ${
-                      c.status === "resolved" ? "bg-primary/10 text-primary"
-                        : c.status === "investigating" ? "bg-accent/10 text-accent"
+                      c.status === "Resolved" ? "bg-primary/10 text-primary"
+                        : c.status === "Investigating" ? "bg-accent/10 text-accent"
                         : "bg-amber-500/10 text-amber-600"
-                    }`}>
-                      {c.status}
-                    </span>
+                    }`}>{c.status}</span>
                   </div>
                 ))}
               </div>
             </motion.div>
 
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }} className="glass-card p-6">
-              <h3 className="font-bold mb-4 flex items-center gap-2">
-                <Clock className="h-5 w-5 text-primary" />
-                Recent Activity
-              </h3>
+              <h3 className="font-bold mb-4 flex items-center gap-2"><Clock className="h-5 w-5 text-primary" />Recent Activity</h3>
               <div className="space-y-4">
                 {displayTimeline.map((t, i) => (
                   <div key={i} className="flex gap-3">
